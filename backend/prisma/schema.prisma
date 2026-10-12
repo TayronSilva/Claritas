@@ -1,0 +1,564 @@
+// Claritas - schema do dominio
+// Convencao: valores monetarios em Decimal(18,2). Nada de dado pessoal sensivel
+// vai para a blockchain: a cadeia guarda apenas hash, versao de regra e decisao.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------- enums
+
+enum Role {
+  PLATFORM_ADMIN
+  INSTITUTION_FINANCE
+  COMMITTEE_MEMBER
+  STUDENT
+}
+
+enum InstitutionStatus {
+  ACTIVE
+  SUSPENDED
+  PILOT
+}
+
+enum StudentStatus {
+  ACTIVE
+  TRUNCATED
+  GRADUATED
+  DROPPED
+}
+
+enum ChargeStatus {
+  PENDING
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+  REVERSED
+}
+
+enum BatchStatus {
+  BUILDING
+  SUBMITTED
+  CONFIRMED
+  FAILED
+}
+
+enum ApplicationStatus {
+  ELIGIBLE
+  INELIGIBLE
+  AWARDED
+  NOT_AWARDED
+  APPEALED
+}
+
+enum AwardTier {
+  A
+  B
+  C
+  D
+}
+
+enum AwardStatus {
+  ACTIVE
+  SUSPENDED
+  EXPIRED
+  CANCELLED
+}
+
+enum ProposalType {
+  PRIORITY
+  FUND_PERCENTAGE
+  RULE_CHANGE
+}
+
+enum ProposalStatus {
+  DRAFT
+  OPEN
+  APPROVED
+  REJECTED
+  EXECUTED
+}
+
+enum VoteChoice {
+  APPROVE
+  REJECT
+  ABSTAIN
+}
+
+enum LedgerEntryType {
+  REVENUE
+  BANK_FEE
+  PLATFORM_FEE
+  PSP_COST
+  FUND_CONTRIBUTION
+  SCHOLARSHIP_PAID
+  REFUND
+  ADJUSTMENT
+}
+
+enum LedgerDirection {
+  DEBIT
+  CREDIT
+}
+
+enum OnChainStatus {
+  PENDING
+  ANCHORED
+  FAILED
+}
+
+enum AppealStatus {
+  OPEN
+  IN_REVIEW
+  RESOLVED_UPHELD
+  RESOLVED_DENIED
+}
+
+// ---------------------------------------------------------------- estrutura
+
+model Institution {
+  id           String            @id @default(cuid())
+  name         String
+  slug         String            @unique
+  cnpj         String?
+  logoUrl      String?
+  status       InstitutionStatus @default(PILOT)
+  treasuryPub  String? // carteira Solana da tesouraria
+  feePayerPub  String? // carteira da plataforma que patrocina a taxa
+  fundSharePct Decimal           @default(30) @db.Decimal(5, 2)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  users            User[]
+  students         Student[]
+  charges          Charge[]
+  batches          BatchPayment[]
+  economyReports   EconomyReport[]
+  funds            Fund[]
+  ledgerEntries    LedgerEntry[]
+  proposals        Proposal[]
+  scoringRuleVers  ScoringRuleVersion[]
+  appealCommittee  AppealCommittee[]
+
+  @@index([status])
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         Role
+  institutionId String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  institution Institution?  @relation(fields: [institutionId], references: [id])
+  student     Student?
+  votes       Vote[]
+  proposals   Proposal[]
+
+  @@index([institutionId])
+  @@index([role])
+}
+
+model Student {
+  id             String       @id @default(cuid())
+  institutionId  String
+  userId         String?      @unique
+  enrollmentCode String
+  fullName       String
+  email          String?
+  course         String
+  monthlyFee     Decimal      @db.Decimal(18, 2)
+  status         StudentStatus @default(ACTIVE)
+  walletPub      String?
+  intakeYear     Int?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  institution     Institution          @relation(fields: [institutionId], references: [id])
+  user            User?                @relation(fields: [userId], references: [id])
+  charges         Charge[]
+  socialProfile   SocialProfile?
+  applications    ScholarshipApplication[]
+  awards          ScholarshipAward[]
+
+  @@index([institutionId])
+  @@index([status])
+  @@index([enrollmentCode])
+}
+
+// Dados de vulnerabilidade. Ficam no Postgres, NUNCA on-chain.
+model SocialProfile {
+  id                    String   @id @default(cuid())
+  studentId             String   @unique
+  incomePerCapita       Decimal  @db.Decimal(18, 2)
+  householdSize         Int
+  dependentsCount       Int      @default(0)
+  caresForElderlyOrPwd  Boolean  @default(false)
+  overdueChargesCount   Int      @default(0)
+  recentIncomeLoss      Boolean  @default(false)
+  monthsSinceEnrollment Int?
+  distanceKmToCampus    Decimal? @db.Decimal(8, 2)
+  transportDifficulty   Boolean  @default(false)
+  housingInstability    Boolean  @default(false)
+  foodInsecurity        Boolean  @default(false)
+  currentGradeAverage   Decimal? @db.Decimal(4, 2)
+  attendancePct         Decimal? @db.Decimal(5, 2)
+  priorityFlags         PriorityFlag[]
+  documentsRef          String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+}
+
+enum PriorityFlagKey {
+  PCD
+  VIOLENCE
+  DISASTER
+  REFUGEE
+  FAMILY_DISASTER
+  PUBLIC_SERVANT_DEPENDENT
+}
+
+// Flags sao varias: um aluno pode acumular mais de uma situacao prioritaria.
+model PriorityFlag {
+  id        String          @id @default(cuid())
+  profileId String
+  flag      PriorityFlagKey
+  createdAt DateTime        @default(now())
+
+  profile SocialProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, flag])
+  @@index([profileId])
+}
+
+// ---------------------------------------------------------------- regra de pontuacao (versionada)
+
+// Regra publicada e imutavel. Toda decisao de bolsa referencia uma versao.
+model ScoringRuleVersion {
+  id            String   @id @default(cuid())
+  institutionId String
+  version       Int
+  label         String
+  weights       Json // { renda: 40, evasao: 20, ... }
+  tierCutoffs   Json // { A: 75, B: 50, C: 30 }
+  publishedAt   DateTime @default(now())
+  isActive      Boolean  @default(true)
+  notes         String?
+
+  institution      Institution            @relation(fields: [institutionId], references: [id])
+  applications     ScholarshipApplication[]
+
+  @@unique([institutionId, version])
+  @@index([institutionId, isActive])
+}
+
+// ---------------------------------------------------------------- cobrancas e pagamento
+
+model Charge {
+  id             String       @id @default(cuid())
+  institutionId  String
+  studentId      String
+  batchId        String?
+  reference      String       @unique
+  description    String
+  amount         Decimal      @db.Decimal(18, 2)
+  dueDate        DateTime
+  status         ChargeStatus @default(PENDING)
+  paidAt         DateTime?
+  onchainRef     String? // hash ancorado da prova de pagamento
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  institution Institution    @relation(fields: [institutionId], references: [id])
+  student     Student        @relation(fields: [studentId], references: [id])
+  batch       BatchPayment?  @relation(fields: [batchId], references: [id])
+  payment     Payment?
+
+  @@index([institutionId, status])
+  @@index([studentId])
+  @@index([batchId])
+}
+
+model Payment {
+  id             String        @id @default(cuid())
+  chargeId       String        @unique
+  payerPub       String // quem assinou: o aluno
+  feePayerPub    String // quem pagou a taxa: a plataforma
+  feeSponsored   Boolean       @default(true)
+  txSignature    String?
+  status         PaymentStatus @default(PENDING)
+  amount         Decimal       @db.Decimal(18, 2)
+  networkFeeLamports BigInt?
+  confirmedAt    DateTime?
+  idempotencyKey String        @unique
+  rawResponse    Json?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  charge Charge @relation(fields: [chargeId], references: [id])
+
+  @@index([status])
+  @@index([txSignature])
+}
+
+// Lote: N cobrancas em uma unica transacao atomica
+model BatchPayment {
+  id            String      @id @default(cuid())
+  institutionId String
+  label         String
+  period        String // YYYY-MM
+  chargeCount   Int         @default(0)
+  totalAmount   Decimal     @default(0) @db.Decimal(18, 2)
+  status        BatchStatus @default(BUILDING)
+  txSignature   String?
+  lookupTable   String? // Address Lookup Table usada para comprimir contas
+  computeUnits  BigInt?
+  submittedAt   DateTime?
+  confirmedAt   DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  institution Institution @relation(fields: [institutionId], references: [id])
+  charges     Charge[]
+  ledger      LedgerEntry[]
+
+  @@index([institutionId, period])
+  @@index([status])
+}
+
+// ---------------------------------------------------------------- economia e fundo
+
+model EconomyReport {
+  id                    String   @id @default(cuid())
+  institutionId         String
+  period                String
+  activeStudents         Int
+  expectedLiquidation   Int
+  bankFeePerLiquidation Decimal  @db.Decimal(18, 2)
+  bankCostCurrent       Decimal  @db.Decimal(18, 2)
+  newVariableCost       Decimal  @db.Decimal(18, 2)
+  platformFee           Decimal  @db.Decimal(18, 2)
+  grossEconomy          Decimal  @db.Decimal(18, 2)
+  netEconomy            Decimal  @db.Decimal(18, 2)
+  fundSharePct          Decimal  @db.Decimal(5, 2)
+  fundAmount            Decimal  @db.Decimal(18, 2)
+  institutionBenefit    Decimal  @db.Decimal(18, 2)
+  isVerified            Boolean  @default(false)
+  createdAt             DateTime @default(now())
+
+  institution Institution @relation(fields: [institutionId], references: [id])
+  fund        Fund?
+
+  @@unique([institutionId, period])
+}
+
+model Fund {
+  id              String   @id @default(cuid())
+  institutionId   String
+  economyReportId String   @unique
+  period          String
+  budget          Decimal  @db.Decimal(18, 2)
+  contributed     Decimal  @default(0) @db.Decimal(18, 2)
+  distributed     Decimal  @default(0) @db.Decimal(18, 2)
+  reserved        Decimal  @default(0) @db.Decimal(18, 2)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  institution   Institution      @relation(fields: [institutionId], references: [id])
+  economyReport EconomyReport    @relation(fields: [economyReportId], references: [id])
+  awards        ScholarshipAward[]
+
+  @@index([institutionId, period])
+}
+
+// ---------------------------------------------------------------- bolsas
+
+model ScholarshipApplication {
+  id           String            @id @default(cuid())
+  studentId    String
+  ruleVersionId String
+  period       String
+  totalScore   Decimal           @db.Decimal(5, 2)
+  scoreBreakdown Json // criterio a criterio, com o peso aplicado
+  eligibility  EligibilityCheck  @default(PASS)
+  status       ApplicationStatus @default(ELIGIBLE)
+  awardedTier  AwardTier?
+  decidedAt    DateTime?
+  decidedBy    String?
+  rationale    String?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  student     Student             @relation(fields: [studentId], references: [id])
+  ruleVersion ScoringRuleVersion  @relation(fields: [ruleVersionId], references: [id])
+  award       ScholarshipAward?
+  appeals     Appeal[]
+
+  @@unique([studentId, period])
+  @@index([period, status])
+  @@index([ruleVersionId])
+}
+
+enum EligibilityCheck {
+  PASS
+  FAIL
+}
+
+model ScholarshipAward {
+  id            String      @id @default(cuid())
+  applicationId String      @unique
+  studentId     String
+  fundId        String
+  tier          AwardTier
+  coveragePct   Decimal     @db.Decimal(5, 2)
+  monthlyValue  Decimal     @db.Decimal(18, 2)
+  status        AwardStatus @default(ACTIVE)
+  startsAt      DateTime
+  endsAt        DateTime?
+  revokedReason String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  application ScholarshipApplication @relation(fields: [applicationId], references: [id])
+  student     Student               @relation(fields: [studentId], references: [id])
+  fund        Fund                  @relation(fields: [fundId], references: [id])
+  ledger      LedgerEntry[]
+
+  @@index([studentId, status])
+  @@index([fundId])
+}
+
+model Appeal {
+  id            String       @id @default(cuid())
+  applicationId String
+  studentId     String
+  reason        String
+  status        AppealStatus @default(OPEN)
+  deadlineAt    DateTime
+  reviewedBy    String?
+  resolution    String?
+  createdAt     DateTime     @default(now())
+  resolvedAt    DateTime?
+
+  application ScholarshipApplication @relation(fields: [applicationId], references: [id])
+
+  @@index([status])
+}
+
+// Comissao de recurso: no minimo um representante estudantil e um membro independente
+model AppealCommittee {
+  id             String   @id @default(cuid())
+  institutionId  String
+  userId         String
+  isStudentRep   Boolean  @default(false)
+  isIndependent  Boolean  @default(false)
+  conflictDeclared Boolean @default(false)
+  createdAt      DateTime @default(now())
+
+  institution Institution @relation(fields: [institutionId], references: [id])
+
+  @@index([institutionId])
+}
+
+// ---------------------------------------------------------------- governanca
+
+model Proposal {
+  id            String         @id @default(cuid())
+  institutionId String
+  authorId      String
+  type          ProposalType
+  title         String
+  description   String
+  status        ProposalStatus @default(OPEN)
+  voteDeadline  DateTime
+  createdAt     DateTime       @default(now())
+  closedAt      DateTime?
+
+  institution Institution      @relation(fields: [institutionId], references: [id])
+  author      User              @relation(fields: [authorId], references: [id])
+  votes       Vote[]
+  onchain     OnChainAnchor?
+
+  @@index([institutionId, status])
+}
+
+// Voto: identidade institucional impede voto duplicado
+model Vote {
+  id         String     @id @default(cuid())
+  proposalId String
+  voterId    String
+  voterKind  String // STUDENT | COMMITTEE | AUDIT
+  choice     VoteChoice
+  weight     Int        @default(1)
+  onchainHash String?
+  createdAt  DateTime   @default(now())
+
+  proposal Proposal @relation(fields: [proposalId], references: [id])
+  voter    User     @relation(fields: [voterId], references: [id])
+
+  @@unique([proposalId, voterId])
+  @@index([proposalId])
+}
+
+// ---------------------------------------------------------------- contabilidade
+
+// Ledger de dupla entrada. Blockchain nao substitui contabilidade operacional.
+model LedgerEntry {
+  id             String          @id @default(cuid())
+  institutionId  String
+  batchId        String?
+  awardId        String?
+  type           LedgerEntryType
+  direction      LedgerDirection
+  amount         Decimal         @db.Decimal(18, 2)
+  account        String
+  memo           String?
+  onchainRef     String?
+  createdAt      DateTime        @default(now())
+
+  institution Institution  @relation(fields: [institutionId], references: [id])
+  batch       BatchPayment? @relation(fields: [batchId], references: [id])
+  award       ScholarshipAward? @relation(fields: [awardId], references: [id])
+
+  @@index([institutionId, createdAt])
+  @@index([type])
+  @@index([account])
+}
+
+// Prova ancorada: so hash, versao de regra e decisao vao para a cadeia
+model OnChainAnchor {
+  id           String        @id @default(cuid())
+  proposalId   String?       @unique
+  entityType   String
+  entityId     String
+  payloadHash  String
+  network      String        @default("devnet")
+  txSignature  String?
+  status       OnChainStatus @default(PENDING)
+  attempts     Int           @default(0)
+  lastError    String?
+  createdAt    DateTime      @default(now())
+  anchoredAt   DateTime?
+
+  proposal Proposal? @relation(fields: [proposalId], references: [id])
+
+  @@index([status])
+  @@index([entityType, entityId])
+}

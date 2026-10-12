@@ -1,0 +1,29 @@
+# dependencias
+node_modules/
+
+# build
+dist/
+build/
+
+# variaveis de ambiente e SEGREDOS (nunca commitar)
+.env
+.env.local
+.env.*.local
+
+# logs
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# typescript
+*.tsbuildinfo
+
+# banco local
+*.db
+*.db-journal
+
+# OS / editor / ferramentas
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

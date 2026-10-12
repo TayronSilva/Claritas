@@ -1,0 +1,61 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-surface font-body text-on-surface;
+  }
+
+  table {
+    @apply w-full border-collapse;
+  }
+
+  th {
+    @apply text-left font-mono text-xs font-medium uppercase tracking-wide text-on-surface-variant;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-surface-container-low;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-outline-variant;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-outline;
+  }
+}
+
+@layer components {
+  .input {
+    @apply w-full rounded border border-outline-variant bg-surface-container-lowest px-3 py-2 text-sm text-on-surface outline-none transition-colors placeholder:text-outline focus:border-secondary;
+  }
+
+  .label {
+    @apply mb-1.5 block font-mono text-xs font-medium uppercase tracking-wide text-on-surface-variant;
+  }
+
+  .table-cell {
+    @apply border-b border-outline-variant/40 px-4 py-3 text-sm;
+  }
+
+  .table-head {
+    @apply border-b border-outline-variant/60;
+  }
+
+  .table-wrap {
+    @apply overflow-x-auto rounded-lg border border-outline-variant/60 bg-surface-container-lowest;
+  }
+}
