@@ -1,4 +1,4 @@
-import {
+﻿import {
   Body,
   Controller,
   Get,
@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiProperty, ApiTags } from '@nestjs/swagger';
-import { IsIn, IsOptional, IsString } from 'class-validator';
+import { IsOptional, IsString, Matches } from 'class-validator';
 import { ScholarshipsService } from './scholarships.service';
 
 class PublishRuleBody {
@@ -26,7 +26,7 @@ class EvaluateBody {
   institutionId: string;
 
   @ApiProperty({ example: '2026-10' })
-  @IsIn([/^\d{4}-\d{2}$/])
+  @Matches(/^\d{4}-\d{2}$/)
   period: string;
 }
 
@@ -34,7 +34,7 @@ class AllocateBody {
   @IsString()
   institutionId: string;
 
-  @IsIn([/^\d{4}-\d{2}$/])
+  @Matches(/^\d{4}-\d{2}$/)
   period: string;
 
   @IsString()

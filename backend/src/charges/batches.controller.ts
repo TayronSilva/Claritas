@@ -1,4 +1,4 @@
-import {
+﻿import {
   Body,
   Controller,
   Get,
@@ -9,14 +9,14 @@ import {
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { IsIn, IsString } from 'class-validator';
+import { IsString, Matches } from 'class-validator';
 import { BatchesService } from './batches.service';
 
 class CreateBatchBody {
   @IsString()
   institutionId: string;
 
-  @IsIn([/^\d{4}-\d{2}$/])
+  @Matches(/^\d{4}-\d{2}$/)
   period: string;
 }
 

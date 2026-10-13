@@ -1,4 +1,4 @@
-import {
+﻿import {
   Body,
   Controller,
   Get,
@@ -10,7 +10,7 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { ChargeStatus } from '@prisma/client';
-import { IsIn, IsISO8601, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsISO8601, IsNumber, IsOptional, IsString, Matches, Min } from 'class-validator';
 import { CurrentUser, type AuthUser } from '../auth/current-user.decorator';
 import { ChargesService } from './charges.service';
 
@@ -37,7 +37,7 @@ class GenerateMonthlyBody {
   @IsString()
   institutionId: string;
 
-  @IsIn([/^\d{4}-\d{2}$/])
+  @Matches(/^\d{4}-\d{2}$/)
   period: string;
 }
 

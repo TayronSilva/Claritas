@@ -1,3 +1,9 @@
+/**
+ * Em desenvolvimento o Vite faz proxy de /api para o backend local.
+ * Em producao a Vercel nao tem proxy: a URL vem de VITE_API_URL.
+ */
+const API_BASE = (import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '');
+
 const TOKEN_KEY = 'claritas.accessToken';
 const INSTITUTION_KEY = 'claritas.institutionId';
 
@@ -42,7 +48,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     if (token) headers.Authorization = `Bearer ${token}`;
   }
 
-  const response = await fetch(`/api/v1${path}`, {
+  const response = await fetch(`${API_BASE}/api/v1${path}`, {
     method,
     headers,
     signal,
