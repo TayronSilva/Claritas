@@ -1,4 +1,4 @@
-import { request } from './client';
+import { request, upload } from './client';
 import type {
   AllocateResult,
   AuthUser,
@@ -120,6 +120,24 @@ export const studentsApi = {
   detail: (id: string) => request<StudentDetail>(`/students/${id}`),
   byEnrollment: (institutionId: string, code: string) =>
     request<StudentDetail>(`/students/enrollment/${institutionId}/${encodeURIComponent(code)}`),
+};
+
+export const documentsApi = {
+  types: () => request<{ types: string[]; maxBytes: number }>('/documents/types'),
+  upload: (file: File, docType: string) => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('docType', docType);
+    return upload<{
+      ok: boolean;
+      fileName: string;
+      storedAs: string;
+      bytes: number;
+      mimeType: string;
+      documentsRef: string;
+      uploadedAt: string;
+    }>('/documents', form);
+  },
 };
 
 export const chargesApi = {

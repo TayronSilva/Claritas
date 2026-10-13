@@ -38,6 +38,32 @@ type RequestOptions = {
   signal?: AbortSignal;
 };
 
+export async function upload<T>(path: string, form: FormData): Promise<T> {
+  const headers: Record<string, string> = {};
+  const token = tokenStore.get();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const response = await fetch(`${API_BASE}/api/v1${path}`, {
+    method: 'POST',
+    headers,
+    body: form,
+  });
+
+  const text = await response.text();
+  const payload: unknown = text ? safeParse(text) : null;
+
+  if (!response.ok) {
+    if (response.status === 401) tokenStore.clear();
+    throw new ApiError(
+      response.status,
+      extractMessage(payload) ?? `Falha no envio (${response.status})`,
+      payload,
+    );
+  }
+
+  return payload as T;
+}
+
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = 'GET', body, auth = true, signal } = options;
   const headers: Record<string, string> = {};

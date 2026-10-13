@@ -111,6 +111,24 @@ export class StudentsService {
     return this.findOne(student.id);
   }
 
+  /**
+   * Guarda apenas a referencia (hash) do documento enviado.
+   * O arquivo em si fica em disco, fora do banco e fora da blockchain.
+   */
+  async attachDocument(studentId: string, reference: string) {
+    return this.prisma.socialProfile.upsert({
+      where: { studentId },
+      create: {
+        studentId,
+        incomePerCapita: 0,
+        householdSize: 1,
+        documentsRef: reference,
+      },
+      update: { documentsRef: reference },
+      select: { id: true, documentsRef: true },
+    });
+  }
+
   async findByEnrollment(institutionId: string, enrollmentCode: string) {
     const student = await this.prisma.student.findFirst({
       where: { institutionId, enrollmentCode },
